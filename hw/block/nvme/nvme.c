@@ -1004,6 +1004,10 @@ static void nvme_rw_cb(void *opaque, int ret)
         if (n->params.dialect == NVME_DIALECT_OCSSD20 &&
             req->is_write && blk_req->blk_offset < ns->blk.meta) {
             req->status = lnvm_advance_wp(n, blk_req->slba, blk_req->nlb, req);
+
+            if (lnvm_commit_chunk_info(n, ns)) {
+                req->status = NVME_INTERNAL_DEV_ERROR | NVME_DNR;
+            }
         }
     } else {
         block_acct_failed(blk_get_stats(n->conf.blk), &blk_req->acct);
@@ -1011,12 +1015,6 @@ static void nvme_rw_cb(void *opaque, int ret)
     }
 
     if (QTAILQ_EMPTY(&req->blk_req_tailq_head)) {
-        if (n->params.dialect == NVME_DIALECT_OCSSD20 && req->is_write) {
-            if (lnvm_commit_chunk_info(n, ns)) {
-                req->status = NVME_INTERNAL_DEV_ERROR | NVME_DNR;
-            }
-        }
-
         if (req->status != NVME_SUCCESS) {
             nvme_set_error_page(n, sq->sqid, req->cqe.cid, req->status,
                 offsetof(NvmeRwCmd, slba), blk_req->blk_offset, ns->id);
