@@ -79,23 +79,24 @@ nvme_err_startfail_asqent_sz_zero(void) "nvme_start_ctrl failed because the admi
 nvme_err_startfail_acqent_sz_zero(void) "nvme_start_ctrl failed because the admin completion queue size is zero"
 nvme_err_startfail(void) "setting controller enable bit failed"
 
-# lnvm traces
-lnvm_rw(uint16_t cid, uint16_t opcode, uint16_t nlb, char *lbas) "cid %"PRIu16" opcode 0x%"PRIx16" nlb %"PRIu16" %s"
-lnvm_addr(uint16_t cid, char *lba) "cid %"PRIu16" %s"
-lnvm_advance_wp(uint16_t cid, uint64_t lba, uint16_t nlb) "cid %"PRIu16" lba 0x%"PRIx64" nlb %"PRIu16""
-lnvm_double_reset(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
-lnvm_early_reset(uint16_t cid, uint64_t lba, uint64_t wp) "cid %"PRIu16" lba 0x%"PRIx64" wp %"PRIu64""
-lnvm_inject_write_err(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
-lnvm_inject_reset_err(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
+# ocssd traces
+ocssd_rw(uint16_t cid, uint16_t opcode, uint16_t nlb, char *lbas) "cid %"PRIu16" opcode 0x%"PRIx16" nlb %"PRIu16" %s"
+ocssd_addr(uint16_t cid, char *lba) "cid %"PRIu16" %s"
+ocssd_advance_wp(uint16_t cid, uint64_t lba, uint16_t nlb) "cid %"PRIu16" lba 0x%"PRIx64" nlb %"PRIu16""
+ocssd_double_reset(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
+ocssd_early_reset(uint16_t cid, uint64_t lba, uint64_t wp) "cid %"PRIu16" lba 0x%"PRIx64" wp %"PRIu64""
+ocssd_inject_write_err(uint16_t cid, uint8_t p, uint64_t lba) "cid %"PRIu16" p %"PRIu8" lba 0x%"PRIx64""
+ocssd_inject_reset_err(uint16_t cid, uint8_t p, uint64_t lba) "cid %"PRIu16" p %"PRIu8" lba 0x%"PRIx64""
+ocssd_io_cmd(uint16_t cid, uint32_t nsid, uint16_t opcode) "cid %"PRIu16" nsid %"PRIu32" opcode 0x%"PRIx16""
 
-# lnvm traces (error conditions)
-lnvm_err(uint16_t cid, const char *s, uint16_t err) "cid %"PRIu16" \"%s\" err 0x%"PRIx16""
-lnvm_err_invalid_chunk(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
-lnvm_err_invalid_chunk_state(uint16_t cid, uint64_t lba, uint8_t state) "cid %"PRIu16" lba 0x%"PRIx64" state 0x%"PRIx8""
-lnvm_err_offline_chunk(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
-lnvm_err_write_constraints(uint16_t cid, uint16_t nlb, uint32_t ws_min) "cid %"PRIu16" nlb %"PRIu16" ws_min %"PRIu32""
-lnvm_err_out_of_bounds(uint16_t cid, uint32_t sectr, uint64_t cnlb) "cid %"PRIu16" sectr %"PRIu32" cnlb %"PRIu64""
-lnvm_err_out_of_order(uint16_t cid, uint32_t sectr, uint64_t wp) "cid %"PRIu16" sectr %"PRIu32" wp %"PRIu64""
+# ocssd traces (error conditions)
+ocssd_err(uint16_t cid, const char *s, uint16_t err) "cid %"PRIu16" \"%s\" err 0x%"PRIx16""
+ocssd_err_invalid_chunk(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
+ocssd_err_invalid_chunk_state(uint16_t cid, uint64_t lba, uint8_t state) "cid %"PRIu16" lba 0x%"PRIx64" state 0x%"PRIx8""
+ocssd_err_offline_chunk(uint16_t cid, uint64_t lba) "cid %"PRIu16" lba 0x%"PRIx64""
+ocssd_err_write_constraints(uint16_t cid, uint16_t nlb, uint32_t ws_min) "cid %"PRIu16" nlb %"PRIu16" ws_min %"PRIu32""
+ocssd_err_out_of_bounds(uint16_t cid, uint32_t sectr, uint64_t cnlb) "cid %"PRIu16" sectr %"PRIu32" cnlb %"PRIu64""
+ocssd_err_out_of_order(uint16_t cid, uint32_t sectr, uint64_t wp) "cid %"PRIu16" sectr %"PRIu32" wp %"PRIu64""
 
 # Traces for undefined behavior
 nvme_ub_mmiowr_misaligned32(uint64_t offset) "MMIO write not 32-bit aligned, offset=0x%"PRIx64""

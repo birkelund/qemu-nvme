@@ -7,12 +7,6 @@
  * Copyright (C) 2010, Blue Swirl <blauwirbel@gmail.com>
  * Copyright (C) 2009, Anthony Liguori <aliguori@us.ibm.com>
  *
- * Author:
- *   Laszlo Ersek <lersek@redhat.com>
- *
- * Modified by:
- *   Klaus Birkelund Jensen <klaus.jensen@cnexlabs.com>
- *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
  * deal in the Software without restriction, including without limitation the
@@ -37,11 +31,12 @@
 #include "qapi/error.h"
 #include "qemu/option.h"
 
-#include "block/lightnvm.h"
+#include "block/ocssd.h"
+#include "hw/block/nvme/ocssd.h"
 
 typedef struct BDRVOcssdState {
-    LnvmHeader hdr;
-    LnvmNamespaceGeometry *namespaces;
+    OcssdFormatHeader hdr;
+    OcssdIdentity *namespaces;
 } BDRVOcssdState;
 
 static QemuOptsList ocssd_create_opts = {
@@ -233,13 +228,13 @@ static int ocssd_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
 }
 
 static ImageInfoSpecificOcssdNS *ocssd_get_namespace_info(
-    LnvmNamespaceGeometry *ns)
+    OcssdIdentity *ns)
 {
     ImageInfoSpecificOcssdNS *info = g_new0(ImageInfoSpecificOcssdNS, 1);
 
     *info = (ImageInfoSpecificOcssdNS) {
         .num_grp = ns->geo.num_grp,
-        .num_pu = ns->geo.num_lun,
+        .num_pu = ns->geo.num_pu,
         .num_chk = ns->geo.num_chk,
         .num_sec = ns->geo.clba,
     };
@@ -319,8 +314,8 @@ static int coroutine_fn ocssd_co_create_opts(const char *filename,
     BlockBackend *blk = NULL;
     BlockDriverState *bs = NULL;
     Error *local_err = NULL;
-    LnvmHeader *header;
-    LnvmNamespaceGeometry geo;
+    OcssdFormatHeader *hdr;
+    OcssdIdentity id;
     uint16_t groups, punits;
     uint32_t chunks, sectors, mccap, ws_min, ws_opt, mw_cunits;
     uint64_t sec_size, md_size, num_ns, logpage_size;
@@ -341,18 +336,19 @@ static int coroutine_fn ocssd_co_create_opts(const char *filename,
     md_size = qemu_opt_get_size(opts, "md_size", 16);
 
     chks_total = groups * punits * chunks;
-    logpage_size = QEMU_ALIGN_UP(chks_total * sizeof(LnvmCS), sec_size);
+    logpage_size = QEMU_ALIGN_UP(chks_total * sizeof(OcssdChunkDescriptor),
+        sec_size);
 
     secs_total = chks_total * sectors;
     usable_size = secs_total * (sec_size + md_size);
 
     /* add space for header and logpage */
-    ns_size = usable_size + sizeof(LnvmNamespaceGeometry) + logpage_size;
+    ns_size = usable_size + sizeof(id) + logpage_size;
 
     /* add space for one sector containing predefined data */
     ns_size += sec_size;
 
-    size = sizeof(LnvmHeader) + ns_size * num_ns;
+    size = sizeof(*hdr) + ns_size * num_ns;
 
     qemu_opt_set_number(opts, "size", size, errp);
 
@@ -363,7 +359,7 @@ static int coroutine_fn ocssd_co_create_opts(const char *filename,
     }
 
     bs = bdrv_open(filename, NULL, NULL,
-                   BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
+        BDRV_O_RDWR | BDRV_O_RESIZE | BDRV_O_PROTOCOL, errp);
     if (bs == NULL) {
         ret = -EIO;
         goto fail;
@@ -384,23 +380,23 @@ static int coroutine_fn ocssd_co_create_opts(const char *filename,
 
     /* calculate an "optimal" LBA address format that uses as few bits as
      * possible */
-    LnvmIdLBAF lbaf = {
+    OcssdIdLBAF lbaf = {
         .sec_len = 32 - clz32(sectors - 1),
         .chk_len = 32 - clz32(chunks - 1),
-        .lun_len = 32 - clz32(punits - 1),
+        .pu_len  = 32 - clz32(punits - 1),
         .grp_len = 32 - clz32(groups - 1),
     };
 
-    LnvmAddrF addrf = {
+    OcssdAddrF addrf = {
         .sec_offset = 0,
         .chk_offset = lbaf.sec_len,
-        .lun_offset = lbaf.sec_len + lbaf.chk_len,
-        .grp_offset = lbaf.sec_len + lbaf.chk_len + lbaf.lun_len,
+        .pu_offset  = lbaf.sec_len + lbaf.chk_len,
+        .grp_offset = lbaf.sec_len + lbaf.chk_len + lbaf.pu_len,
     };
 
-    header = g_malloc0(sec_size);
-    *header = (LnvmHeader) {
-        .magic = LNVM_MAGIC,
+    hdr = g_malloc0(sec_size);
+    *hdr = (OcssdFormatHeader) {
+        .magic = OCSSD_MAGIC,
         .version = 0x1,
         .num_namespaces = num_ns,
         .ns_size = ns_size,
@@ -408,30 +404,30 @@ static int coroutine_fn ocssd_co_create_opts(const char *filename,
         .md_size = md_size,
     };
 
-    ret = blk_pwrite(blk, 0, header, sec_size, 0);
+    ret = blk_pwrite(blk, 0, hdr, sec_size, 0);
     if (ret < 0) {
         goto fail;
     }
 
     uint64_t offset = sec_size;
     for (int i = 0; i < num_ns; i++) {
-        geo = (LnvmNamespaceGeometry) {
+        id = (OcssdIdentity) {
             .ver.major = 2,
             .ver.minor = 0,
             .lbaf = lbaf,
             .mccap = mccap,
-            .geo = (LnvmIdGeo) {
+            .geo = (OcssdIdGeo) {
                 .num_grp = groups,
-                .num_lun = punits,
+                .num_pu  = punits,
                 .num_chk = chunks,
                 .clba = sectors,
             },
-            .wrt = (LnvmIdWrt) {
+            .wrt = (OcssdIdWrt) {
                 .ws_min = ws_min,
                 .ws_opt = ws_opt,
                 .mw_cunits = mw_cunits,
             },
-            .perf = (LnvmIdPerf) {
+            .perf = (OcssdIdPerf) {
                 .trdt = cpu_to_le32(70000),
                 .trdm = cpu_to_le32(100000),
                 .tprt = cpu_to_le32(1900000),
@@ -441,24 +437,24 @@ static int coroutine_fn ocssd_co_create_opts(const char *filename,
             },
         };
 
-        ret = blk_pwrite(blk, offset, &geo, sizeof(LnvmNamespaceGeometry), 0);
+        ret = blk_pwrite(blk, offset, &id, sizeof(id), 0);
         if (ret < 0) {
             goto fail;
         }
 
-        LnvmCS *cs = g_malloc0(logpage_size);
+        OcssdChunkDescriptor *chk = g_malloc0(logpage_size);
         for (int i = 0; i < chks_total; i++) {
-            cs[i].state = LNVM_CHUNK_FREE;
-            cs[i].type = LNVM_CHUNK_TYPE_SEQ;
-            cs[i].wear_index = 0;
-            cs[i].slba = (i / (chunks * punits)) << addrf.grp_offset
-                | (i % (chunks * punits) / chunks) << addrf.lun_offset
+            chk[i].state = OCSSD_CHUNK_FREE;
+            chk[i].type = OCSSD_CHUNK_TYPE_SEQUENTIAL;
+            chk[i].wear_index = 0;
+            chk[i].slba = (i / (chunks * punits)) << addrf.grp_offset
+                | (i % (chunks * punits) / chunks) << addrf.pu_offset
                 | (i % chunks) << addrf.chk_offset;
-            cs[i].cnlb = sectors;
-            cs[i].wp = 0;
+            chk[i].cnlb = sectors;
+            chk[i].wp = 0;
         }
 
-        ret = blk_pwrite(blk, offset + sizeof(LnvmNamespaceGeometry), cs,
+        ret = blk_pwrite(blk, offset + sizeof(id), chk,
             logpage_size, 0);
         if (ret < 0) {
             goto fail;
@@ -496,16 +492,16 @@ static int ocssd_open(BlockDriverState *bs, QDict *options, int flags,
         ((BDRV_REQ_FUA | BDRV_REQ_MAY_UNMAP) &
             bs->file->bs->supported_zero_flags);
 
-    ret = bdrv_pread(bs->file, 0, &s->hdr, sizeof(LnvmHeader));
+    ret = bdrv_pread(bs->file, 0, &s->hdr, sizeof(OcssdFormatHeader));
     if (ret < 0) {
         return ret;
     }
 
-    s->namespaces = g_new0(LnvmNamespaceGeometry, s->hdr.num_namespaces);
+    s->namespaces = g_new0(OcssdIdentity, s->hdr.num_namespaces);
 
     for (int i = 0; i < s->hdr.num_namespaces; i++) {
         ret = bdrv_pread(bs->file, s->hdr.sector_size + i * s->hdr.ns_size,
-            &s->namespaces[i], sizeof(LnvmNamespaceGeometry));
+            &s->namespaces[i], sizeof(OcssdIdentity));
         if (ret < 0) {
             return ret;
         }
@@ -516,13 +512,13 @@ static int ocssd_open(BlockDriverState *bs, QDict *options, int flags,
 
 static int ocssd_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
-    const LnvmHeader *header = (const void *) buf;
+    const OcssdFormatHeader *hdr = (const void *) buf;
 
-    if (buf_size < sizeof(LnvmHeader)) {
+    if (buf_size < sizeof(*hdr)) {
         return 0;
     }
 
-    if (header->magic == LNVM_MAGIC && header->version == 1) {
+    if (hdr->magic == OCSSD_MAGIC && hdr->version == 1) {
         return 100;
     }
 

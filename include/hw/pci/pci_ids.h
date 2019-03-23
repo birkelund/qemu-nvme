@@ -271,4 +271,6 @@
 
 #define PCI_VENDOR_ID_SYNOPSYS           0x16C3
 
+#define PCI_VENDOR_ID_CNEX               0x1d1d
+
 #endif
